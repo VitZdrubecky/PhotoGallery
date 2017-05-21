@@ -1,17 +1,27 @@
 package cz.zdrubecky.photogallery;
 
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
+import android.support.v4.view.MenuItemCompat;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.SearchView;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -27,6 +37,7 @@ public class PhotoGalleryFragment extends Fragment {
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
     private int mCurrentPage;
+    // The generic arg is set right here and is inferred from further on
     private ThumbnailDownloader<PhotoHolder> mThumbnailDownloader;
 
     public static PhotoGalleryFragment newInstance() {
@@ -39,15 +50,31 @@ public class PhotoGalleryFragment extends Fragment {
         // Retained fragment does not download data after every config change
         // The other possibility would be cancelling the asynctask when in need
         setRetainInstance(true);
+        setHasOptionsMenu(true);
 
         mCurrentPage = 1;
 
         // Suck the data!
-        new FetchItemsTask().execute();
+        updateItems();
 
-        mThumbnailDownloader = new ThumbnailDownloader<>();
+        // This fragment's handler, it will attach automatically to the caller
+        Handler responseHandler = new Handler();
+        mThumbnailDownloader = new ThumbnailDownloader<>(responseHandler);
+        mThumbnailDownloader.setThumbnailDownloadListener(
+                // Instantiate a new anonymous class from the interface (this is the only scenario where it's possible)
+                new ThumbnailDownloader.ThumbnailDownloadListener<PhotoHolder>() {
+                    // Notice the target still being here, appropriately
+                    @Override
+                    public void onThumbnailDownloaded(PhotoHolder target, Bitmap thumbnail) {
+                        // Create drawable from Bitmap
+                        Drawable drawable = new BitmapDrawable(getResources(), thumbnail);
+                        // Finally, bind the thing
+                        target.bindDrawable(drawable);
+                    }
+                }
+        );
         mThumbnailDownloader.start();
-        // Beware of a race condition, so make sure that the guts are ready for us
+        // Beware of a race condition, so make sure that the guts are ready for us so we call the looper right away
         mThumbnailDownloader.getLooper();
         Log.i(TAG, "Background thread started.");
     }
@@ -72,7 +99,7 @@ public class PhotoGalleryFragment extends Fragment {
                     mCurrentPage++;
                     Log.i(TAG, "Fetching a new page.");
 
-                    new FetchItemsTask().execute();
+                    updateItems();
                 }
             }
         });
@@ -81,10 +108,96 @@ public class PhotoGalleryFragment extends Fragment {
     }
 
     @Override
+    public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+        super.onCreateOptionsMenu(menu, inflater);
+        inflater.inflate(R.menu.fragment_photo_gallery, menu);
+
+        // Get the item directly from the menu, the view will follow (API 11 allowed this)
+        final MenuItem searchItem = menu.findItem(R.id.menu_item_search);
+        // Invalid call (well, partially - it's invincible)
+//        final SearchView searchView = (SearchView) searchItem.getActionView();
+        // The correct call
+        final SearchView searchView = (SearchView) MenuItemCompat.getActionView(searchItem);
+
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                Log.d(TAG, "onQueryTextSubmit: " + query);
+                QueryPreferences.setStoredQuery(getActivity(), query);
+
+                // Reset the page counter
+                mCurrentPage = 1;
+
+                updateItems();
+
+                // All of these did not work thanks to the compat menu
+//                searchItem.collapseActionView();
+//                MenuItemCompat.collapseActionView(searchItem);
+//                getActivity().invalidateOptionsMenu();
+                searchView.onActionViewCollapsed();
+
+                // Get the currently focused view (soft keyboard)
+                View view = getActivity().getCurrentFocus();
+                if (view != null) {
+                    // Get the system service and use it to hide the keyboard
+                    InputMethodManager imm = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
+                    imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+                }
+
+                return true;
+            }
+
+            @Override
+            public boolean onQueryTextChange(String newText) {
+                Log.d(TAG, "onQueryTextChange: " + newText);
+                return false;
+            }
+        });
+
+        searchView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String query = QueryPreferences.getStoredQuery(getActivity());
+                searchView.setQuery(query, false);
+            }
+        });
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.menu_item_clear:
+                QueryPreferences.setStoredQuery(getActivity(), null);
+
+                // Reset the page counter
+                mCurrentPage = 1;
+
+                updateItems();
+
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+    // Catch the screen rotation here, cause the fragment is retained and is not destroyed
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        mThumbnailDownloader.clearQueue();
+    }
+
+    @Override
     public void onDestroy() {
         super.onDestroy();
         mThumbnailDownloader.quit();
         Log.i(TAG, "Background thread destroyed.");
+    }
+
+    private void updateItems() {
+        String query = QueryPreferences.getStoredQuery(getActivity());
+
+        new FetchItemsTask(query).execute();
     }
 
     private void setupAdapter() {
@@ -95,11 +208,17 @@ public class PhotoGalleryFragment extends Fragment {
 
             if (adapter != null) {
                 // Notify the adapter that the mItems list has changed so it can adjust
+                adapter.setItems(mItems);
                 adapter.notifyDataSetChanged();
-                LinearLayoutManager manager = (LinearLayoutManager) mPhotoRecyclerView.getLayoutManager();
 
-                // Move the position up one item
-                manager.scrollToPosition(manager.findLastCompletelyVisibleItemPosition() + 1);
+                Log.i(TAG, "Adapter's items count: " + adapter.getItemCount());
+
+                if (mCurrentPage > 1) {
+                    LinearLayoutManager manager = (LinearLayoutManager) mPhotoRecyclerView.getLayoutManager();
+
+                    // Move the position up one item
+                    manager.scrollToPosition(manager.findLastCompletelyVisibleItemPosition() + 1);
+                }
             } else {
                 Log.i(TAG, "Setting up a new adapter...");
                 mPhotoRecyclerView.setAdapter(new PhotoAdapter(mItems));
@@ -110,14 +229,25 @@ public class PhotoGalleryFragment extends Fragment {
     // Let's run the task in a background thread and publish the results in the UI Thread
     // Prevents the ANR (app not responding), which is caught by an Android watchdog
     // It wraps around Thread and Handler classes and is used for short operations
+    // ...therefore we use the handler for the image downloading instead (furthermore, it's not really async since version 3.2)
     // The generic params are: params, progress and result
     // Steps are: onPreExecute, doInBackground, onProgressUpdate and onPostExecute.
     // "Loaders" are an alternative to this if we don't want to manage the asynctask lifecycle
     private class FetchItemsTask extends AsyncTask<Void, Void, List<GalleryItem>> {
+        private String mQuery;
+
+        public FetchItemsTask(String query) {
+            mQuery = query;
+        }
+
         // String... params would receive variable amount of strings
         @Override
         protected List<GalleryItem> doInBackground(Void... voids) {
-            return new FlickrFetchr().fetchItems(mCurrentPage);
+            if (mQuery == null) {
+                return new FlickrFetchr().fetchRecentPhotos(mCurrentPage);
+            } else {
+                return new FlickrFetchr().searchPhotos(mQuery, mCurrentPage);
+            }
         }
 
         // This method is handled by the UI thread so it can update the UI safely
@@ -126,7 +256,11 @@ public class PhotoGalleryFragment extends Fragment {
         @Override
         protected void onPostExecute(List<GalleryItem> galleryItems) {
             Log.i(TAG, "mItems size before updating: " + mItems.size());
-            mItems.addAll(galleryItems);
+            if (mCurrentPage > 1) {
+                mItems.addAll(galleryItems);
+            } else {
+                mItems = galleryItems;
+            }
             Log.i(TAG, "mItems size after updating: " + mItems.size());
 
             setupAdapter();
@@ -150,6 +284,8 @@ public class PhotoGalleryFragment extends Fragment {
     private class PhotoAdapter extends RecyclerView.Adapter<PhotoHolder> {
         private List<GalleryItem> mItems;
 
+        // The adapter stores the reference to a memory space, where the given items are
+        // If the parent items change its location, the reference has to be updated, hence the setItems method further down
         public PhotoAdapter(List<GalleryItem> items) {
             mItems = items;
         }
@@ -169,7 +305,7 @@ public class PhotoGalleryFragment extends Fragment {
             GalleryItem item = mItems.get(position);
             Drawable placeholder = getResources().getDrawable(R.drawable.bill_up_close);
             holder.bindDrawable(placeholder);
-            // Set the current holder as a target
+            // Set the current holder as a target of the message
             mThumbnailDownloader.queueThumbnail(holder, item.getUrl());
         }
 
