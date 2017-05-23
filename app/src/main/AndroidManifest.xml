@@ -2,8 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           package="cz.zdrubecky.photogallery">
 
-    <!-- In Marshmallow, there's a just in time permission request instead of this immediate (which makes sense in this kind of app) -->
+    <!-- In Marshmallow, there's a just in time permission request instead of this immediate before-install (which makes sense in this kind of app) -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- The service needs this permission to ask for connectivity -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
     <application
         android:allowBackup="true"
@@ -19,6 +22,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service android:name=".PollService" />
     </application>
 
 </manifest>

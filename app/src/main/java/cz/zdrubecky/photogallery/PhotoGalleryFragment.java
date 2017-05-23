@@ -1,6 +1,7 @@
 package cz.zdrubecky.photogallery;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -36,7 +37,7 @@ public class PhotoGalleryFragment extends Fragment {
 
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
-    private int mCurrentPage;
+    private static int mCurrentPage;
     // The generic arg is set right here and is inferred from further on
     private ThumbnailDownloader<PhotoHolder> mThumbnailDownloader;
 
@@ -53,6 +54,7 @@ public class PhotoGalleryFragment extends Fragment {
         setHasOptionsMenu(true);
 
         mCurrentPage = 1;
+        QueryPreferences.setCurrentPage(getActivity(), mCurrentPage);
 
         // Suck the data!
         updateItems();
@@ -97,6 +99,7 @@ public class PhotoGalleryFragment extends Fragment {
                 // Keep checking if the the recyclerview is at the end of the page
                 if ((manager.findLastCompletelyVisibleItemPosition() + 1) == (mCurrentPage * PAGE_SIZE)) {
                     mCurrentPage++;
+                    QueryPreferences.setCurrentPage(getActivity(), mCurrentPage);
                     Log.i(TAG, "Fetching a new page.");
 
                     updateItems();
@@ -127,6 +130,7 @@ public class PhotoGalleryFragment extends Fragment {
 
                 // Reset the page counter
                 mCurrentPage = 1;
+                QueryPreferences.setCurrentPage(getActivity(), mCurrentPage);
 
                 updateItems();
 
@@ -161,6 +165,13 @@ public class PhotoGalleryFragment extends Fragment {
                 searchView.setQuery(query, false);
             }
         });
+
+        MenuItem toggleItem = menu.findItem(R.id.menu_item_toggle_polling);
+        if (PollService.isServiceAlarmOn(getActivity())) {
+            toggleItem.setTitle(R.string.stop_polling);
+        } else {
+            toggleItem.setTitle(R.string.start_polling);
+        }
     }
 
     @Override
@@ -171,8 +182,16 @@ public class PhotoGalleryFragment extends Fragment {
 
                 // Reset the page counter
                 mCurrentPage = 1;
+                QueryPreferences.setCurrentPage(getActivity(), mCurrentPage);
 
                 updateItems();
+
+                return true;
+            case R.id.menu_item_toggle_polling:
+                boolean shouldStartAlarm = !PollService.isServiceAlarmOn(getActivity());
+                PollService.setServiceAlarm(getActivity(), shouldStartAlarm);
+                // Tell the parent activity to refresh its menu
+                getActivity().invalidateOptionsMenu();
 
                 return true;
             default:
