@@ -2,11 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           package="cz.zdrubecky.photogallery">
 
+    <!-- My own permission! The level states that only apps with the same signature can use it. -->
+    <permission android:name="cz.zdrubecky.photogallery.PRIVATE"
+                android:protectionLevel="signature"/>
+
     <!-- In Marshmallow, there's a just in time permission request instead of this immediate before-install (which makes sense in this kind of app) -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
     <!-- The service needs this permission to ask for connectivity -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <!-- Ability to receive broadcast intent right after system boot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    
+    <!-- Acquire my own permission -->
+    <uses-permission android:name="cz.zdrubecky.photogallery.PRIVATE"/>
 
     <application
         android:allowBackup="true"
@@ -22,7 +32,25 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- Services and receivers are manipulated using intents and have to be declared here -->
         <service android:name=".PollService" />
+
+        <!-- Standalone receiver (independent on app's lifecycle) with an implicit intent -->
+        <receiver android:name=".StartupReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Exported status hides the receiver from the outside world, lowest priority guarantees it's gonna receive last -->
+        <receiver android:name=".NotificationReceiver"
+            android:exported="false">
+            <intent-filter
+                android:priority="-999">
+                <action android:name="cz.zdrubecky.photogallery.SHOW_NOTIFICATION"/>
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

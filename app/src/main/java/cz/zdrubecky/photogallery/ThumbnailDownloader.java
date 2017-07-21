@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentMap;
 
 // use a generic argument to make this class more flexible (every time it's mentioned, don't forget to use it)
 // Message loop = thread + Looper, which runs around and takes care of the queue (it's his inbox)
-// every handler has one looper, but looper can server multiple handlers
+// every handler has one looper, but looper can serve multiple handlers
 public class ThumbnailDownloader<T> extends HandlerThread {
     private static final String TAG = "ThumbnailDownloader";
     // used to identify the message type (what)

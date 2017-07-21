@@ -1,5 +1,6 @@
 package cz.zdrubecky.photogallery;
 
+import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.IntentService;
 import android.app.Notification;
@@ -23,7 +24,7 @@ import java.util.List;
 // It's main advantage is the boilerplate used for background threads that it provides
 // IntentService is non-sticky and conditional - it stops when it says so and only if the last calling ID from onStartCommand lifecycle method is equal to something
 // Non stickiness means that after the OS cuts it down, it disappears into the void
-// Sticky has to be shut down from remotely, like a music player by a user
+// Sticky has to be shut down remotely, like a music player by a user
 // a service can be bound - and then controlled directly through its methods - the only place in Android where it can be seen
 // ...when it's bound remotely, it's more useful, but also a lot harder
 // JobScheduler is a Lollipop addition to handle such tasks (with condition like "do something only when there's a wifi connection ready")
@@ -31,8 +32,16 @@ import java.util.List;
 public class PollService extends IntentService {
     private static final String TAG = "PollService";
 
+    // Publicly accessible intent action identification
+    public static final String ACTION_SHOW_NOTIFICATION = "cz.zdrubecky.photogallery.SHOW_NOTIFICATION";
+    public static final String PERM_PRIVATE = "cz.zdrubecky.photogallery.PRIVATE";
+
+    // Constants for the broadcast intent
+    public static final String REQUEST_CODE = "REQUEST_CODE";
+    public static final String NOTIFICATION = "NOTIFICATION";
+
     // 60 seconds polling interval for an alarm
-    private static final int POLL_INTERVAL = 1000 * 60;
+    private static final int POLL_INTERVAL = 60;
     // Pre-kitkat constant
 //    private static final long POLL_INTERVAL = AlarmManager.INTERVAL_FIFTEEN_MINUTES;
 
@@ -64,6 +73,8 @@ public class PollService extends IntentService {
             alarmManager.cancel(pi);
             pi.cancel();
         }
+
+        QueryPreferences.setAlarmOn(context, isOn);
     }
 
     // Check if the intent is created using the flag
@@ -76,6 +87,7 @@ public class PollService extends IntentService {
 
     // Intent is called command here in service
     // The commands are served in a background thread
+    // Called whenever there are new images available
     @Override
     protected void onHandleIntent(@Nullable Intent intent) {
         if (!isNetworkAvailableAndConnected()) {
@@ -120,12 +132,22 @@ public class PollService extends IntentService {
                     .setAutoCancel(true)
                     .build();
 
-            NotificationManagerCompat notificationManagerCompat = NotificationManagerCompat.from(this);
-            // The id has to be unique, which it is for now
-            notificationManagerCompat.notify(0, notification);
+
+            // The code id has to be unique, which it is for now
+            showBackgroundNotification(0, notification);
         }
 
         QueryPreferences.setLastResultId(this, resultId);
+    }
+
+    private void showBackgroundNotification(int requestCode, Notification notification) {
+        Intent i = new Intent(ACTION_SHOW_NOTIFICATION);
+        i.putExtra(REQUEST_CODE, requestCode);
+        i.putExtra(NOTIFICATION, notification);
+
+        // Notify all the interested components using a broadcast intent and a private permission definition, which limits the receivers
+        // The broadcast is not simple, but ordered - wakes up the receivers one after the other
+        sendOrderedBroadcast(i, PERM_PRIVATE, null, null, Activity.RESULT_OK, null, null);
     }
 
     private boolean isNetworkAvailableAndConnected() {

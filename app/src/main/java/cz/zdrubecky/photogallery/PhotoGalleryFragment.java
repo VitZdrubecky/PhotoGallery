@@ -30,8 +30,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-
-public class PhotoGalleryFragment extends Fragment {
+// Extend VisibleFragment to be able to manage broadcasts
+public class PhotoGalleryFragment extends VisibleFragment {
     private static final String TAG = "PhotoGalleryFragment";
     private static final int PAGE_SIZE = 100;
 
